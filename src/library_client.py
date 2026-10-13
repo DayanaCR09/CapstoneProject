@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -43,9 +44,33 @@ def _retry_after(response: httpx.Response) -> float | None:
 
 
 class _LibraryClientBase:
+    @staticmethod
+    def _required_value(value: str, field: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise DataValidationError(
+                f"{field} must be a non-empty string",
+                field=field,
+            )
+        return value.strip()
+
+    @staticmethod
+    def _positive_integer(value: int, field: str, *, allow_zero: bool = False) -> int:
+        minimum = 0 if allow_zero else 1
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            qualifier = "non-negative" if allow_zero else "positive"
+            raise DataValidationError(
+                f"{field} must be a {qualifier} integer",
+                field=field,
+            )
+        return value
+
+    @classmethod
+    def _path_identifier(cls, value: str, field: str) -> str:
+        return quote(cls._required_value(value, field), safe="")
+
     def __init__(
         self,
-        base_url: str,
+        base_url: str = "https://openlibrary.org",
         *,
         timeout: float,
         max_retries: int,
@@ -101,7 +126,7 @@ class SyncLibraryClient(_LibraryClientBase):
 
     def __init__(
         self,
-        base_url: str,
+        base_url: str = "https://openlibrary.org",
         *,
         timeout: float = 10.0,
         max_retries: int = 3,
@@ -164,6 +189,43 @@ class SyncLibraryClient(_LibraryClientBase):
                 field="response",
             ) from exc
 
+    def search(self, query: str, *, page: int = 1) -> dict[str, Any]:
+        """Search Open Library and return the search response."""
+        query = self._required_value(query, "query")
+        page = self._positive_integer(page, "page")
+        return self.request_json(
+            "GET",
+            "/search.json",
+            params={"q": query, "page": page},
+        )
+
+    def get_work(self, work_id: str) -> dict[str, Any]:
+        """Fetch an Open Library work by its work identifier."""
+        work_id = self._path_identifier(work_id, "work_id")
+        return self.request_json("GET", f"/works/{work_id}.json")
+
+    def get_author_works(self, author_id: str) -> dict[str, Any]:
+        """Fetch the works associated with an Open Library author identifier."""
+        author_id = self._path_identifier(author_id, "author_id")
+        return self.request_json("GET", f"/authors/{author_id}/works.json")
+
+    def get_subject(
+        self,
+        subject: str,
+        *,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Fetch works for a subject with pagination controls."""
+        subject = self._path_identifier(subject, "subject")
+        limit = self._positive_integer(limit, "limit")
+        offset = self._positive_integer(offset, "offset", allow_zero=True)
+        return self.request_json(
+            "GET",
+            f"/subjects/{subject}.json",
+            params={"limit": limit, "offset": offset},
+        )
+
     def close(self) -> None:
         self._client.close()
 
@@ -179,7 +241,7 @@ class AsyncLibraryClient(_LibraryClientBase):
 
     def __init__(
         self,
-        base_url: str,
+        base_url: str = "https://openlibrary.org",
         *,
         timeout: float = 10.0,
         max_retries: int = 3,
@@ -241,6 +303,43 @@ class AsyncLibraryClient(_LibraryClientBase):
                 "API response body is not valid JSON",
                 field="response",
             ) from exc
+
+    async def search(self, query: str, *, page: int = 1) -> dict[str, Any]:
+        """Search Open Library and return the search response."""
+        query = self._required_value(query, "query")
+        page = self._positive_integer(page, "page")
+        return await self.request_json(
+            "GET",
+            "/search.json",
+            params={"q": query, "page": page},
+        )
+
+    async def get_work(self, work_id: str) -> dict[str, Any]:
+        """Fetch an Open Library work by its work identifier."""
+        work_id = self._path_identifier(work_id, "work_id")
+        return await self.request_json("GET", f"/works/{work_id}.json")
+
+    async def get_author_works(self, author_id: str) -> dict[str, Any]:
+        """Fetch the works associated with an Open Library author identifier."""
+        author_id = self._path_identifier(author_id, "author_id")
+        return await self.request_json("GET", f"/authors/{author_id}/works.json")
+
+    async def get_subject(
+        self,
+        subject: str,
+        *,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Fetch works for a subject with pagination controls."""
+        subject = self._path_identifier(subject, "subject")
+        limit = self._positive_integer(limit, "limit")
+        offset = self._positive_integer(offset, "offset", allow_zero=True)
+        return await self.request_json(
+            "GET",
+            f"/subjects/{subject}.json",
+            params={"limit": limit, "offset": offset},
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
