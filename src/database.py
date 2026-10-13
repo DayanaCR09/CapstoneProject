@@ -218,9 +218,7 @@ class DatabaseManager:
 
         value_json = json.dumps(value)
         cached_at = time.time()
-        expires_at = (
-            cached_at + ttl_seconds if ttl_seconds is not None else None
-        )
+        expires_at = cached_at + ttl_seconds if ttl_seconds is not None else None
         with self.transaction():
             self._connection.execute(
                 """
@@ -289,6 +287,36 @@ class DatabaseManager:
                 )
             return None
         return json.loads(row["value_json"])
+
+    def get_statistics(self) -> dict[str, int]:
+        """Return catalog and cache counts, including cache entries past expiry."""
+        works = self._connection.execute("SELECT COUNT(*) FROM works").fetchone()[0]
+        authors = self._connection.execute("SELECT COUNT(*) FROM authors").fetchone()[0]
+        cache_entries = self._connection.execute(
+            "SELECT COUNT(*) FROM api_cache"
+        ).fetchone()[0]
+        expired_cache_entries = self._connection.execute(
+            "SELECT COUNT(*) FROM api_cache WHERE expires_at <= ?", (time.time(),)
+        ).fetchone()[0]
+        return {
+            "works": int(works),
+            "authors": int(authors),
+            "cache_entries": int(cache_entries),
+            "expired_cache_entries": int(expired_cache_entries),
+        }
+
+    def clear_expired_cache(self) -> int:
+        """Delete expired API cache entries and return the number removed."""
+        with self.transaction():
+            cursor = self._connection.execute(
+                "DELETE FROM api_cache WHERE expires_at <= ?", (time.time(),)
+            )
+            return cursor.rowcount
+
+    def integrity_check(self) -> str:
+        """Run SQLite's quick integrity check and return its status."""
+        row = self._connection.execute("PRAGMA quick_check").fetchone()
+        return str(row[0])
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
