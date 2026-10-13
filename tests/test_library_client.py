@@ -84,6 +84,50 @@ def test_client_rejects_invalid_retry_configuration():
         SyncLibraryClient("https://library.example", max_retries=-1)
 
 
+def test_sync_client_calls_open_library_endpoints():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True}, request=request)
+
+    with SyncLibraryClient(transport=httpx.MockTransport(handler)) as client:
+        assert client.search("Pride & Prejudice", page=2) == {"ok": True}
+        assert client.get_work("OL123W") == {"ok": True}
+        assert client.get_author_works("OL456A") == {"ok": True}
+        assert client.get_subject("science fiction", limit=5, offset=10) == {
+            "ok": True
+        }
+
+    assert requests[0].url.path == "/search.json"
+    assert dict(requests[0].url.params) == {
+        "q": "Pride & Prejudice",
+        "page": "2",
+    }
+    assert requests[1].url.path == "/works/OL123W.json"
+    assert requests[2].url.path == "/authors/OL456A/works.json"
+    assert requests[3].url.raw_path.split(b"?", maxsplit=1)[0] == (
+        b"/subjects/science%20fiction.json"
+    )
+    assert dict(requests[3].url.params) == {"limit": "5", "offset": "10"}
+
+
+def test_sync_client_validates_endpoint_arguments():
+    with SyncLibraryClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={}, request=request)
+        )
+    ) as client:
+        with pytest.raises(DataValidationError, match="query"):
+            client.search(" ")
+        with pytest.raises(DataValidationError, match="page"):
+            client.search("books", page=0)
+        with pytest.raises(DataValidationError, match="work_id"):
+            client.get_work("")
+        with pytest.raises(DataValidationError, match="limit"):
+            client.get_subject("fiction", limit=0)
+
+
 @pytest.mark.asyncio
 async def test_async_client_retries_server_error(monkeypatch):
     attempts = 0
@@ -109,6 +153,27 @@ async def test_async_client_retries_server_error(monkeypatch):
     assert response.json() == {"ok": True}
     assert attempts == 2
     assert delays == [0.5]
+
+
+@pytest.mark.asyncio
+async def test_async_client_calls_open_library_endpoints():
+    requests = []
+
+    async def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True}, request=request)
+
+    async with AsyncLibraryClient(transport=httpx.MockTransport(handler)) as client:
+        assert await client.search("Dune", page=3) == {"ok": True}
+        assert await client.get_work("OL789W") == {"ok": True}
+        assert await client.get_author_works("OL101A") == {"ok": True}
+        assert await client.get_subject("fantasy") == {"ok": True}
+
+    assert requests[0].url == "https://openlibrary.org/search.json?q=Dune&page=3"
+    assert requests[1].url.path == "/works/OL789W.json"
+    assert requests[2].url.path == "/authors/OL101A/works.json"
+    assert requests[3].url.path == "/subjects/fantasy.json"
+    assert dict(requests[3].url.params) == {"limit": "10", "offset": "0"}
 
 
 @pytest.mark.asyncio
