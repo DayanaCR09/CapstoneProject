@@ -40,6 +40,12 @@ Run the application:
 uv run python main.py
 ```
 
+To use local overrides, create `.env` from the template:
+
+```powershell
+Copy-Item .env.example .env
+```
+
 You can also install the dependencies in your own Python 3.14 environment and
 start the application with `python main.py`.
 
@@ -88,7 +94,7 @@ Option `4` creates a timestamped report set from the local catalog:
 - `By publication year` and `By language`: counts when metadata is available.
 - `Performance metrics`: catalog size and metadata coverage.
 
-Enter an output directory when prompted, or press Enter to use `reports/`.
+Enter an output directory when prompted, or press Enter to use `data/outputs/`.
 For example, it writes `library_report_YYYYMMDD.xlsx`, CSV and JSON files for
 each dataset, and `library_report_YYYYMMDD_api_handoff.json`. The output
 directory is created if it does not exist. No reports are generated while the
@@ -99,10 +105,12 @@ catalog is empty.
 - The SQLite database defaults to `data/library.db`, relative to the current
   working directory. Its tables are initialized automatically on startup.
 - Open Library requests use `https://openlibrary.org` by default. The HTTP
-  client has retry and timeout defaults in `src/library_client.py`.
-- `src/config.py` can load settings from environment variables and a UTF-8
-  `.env` file. The current application does not define configurable settings
-  there.
+  client has retry and timeout defaults in `src/api/`.
+- Copy `.env.example` to `.env` to configure `DATABASE_PATH`,
+  `OUTPUT_DIRECTORY`, `API_BASE_URL`, and `LOG_LEVEL`. Environment variables
+  can also supply these settings directly.
+- Logs are written to the console and a rotating file under
+  `data/outputs/logs/`.
 
 Generated databases, de-duplicated files, and reports may contain local user
 data; review them before sharing.
@@ -131,15 +139,29 @@ workflow is defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 .
 ├── main.py                  # Application entry point
 ├── src/
-│   ├── cli_app.py           # Interactive menu and workflows
+│   ├── api/
+│   │   ├── client_base.py   # Shared validation and retry handling
+│   │   ├── sync_client.py   # Synchronous Open Library API client
+│   │   ├── async_client.py  # Asynchronous Open Library API client
+│   │   └── catalog_service.py # API-backed catalog workflows
+│   ├── cli/
+│   │   └── menu.py          # Interactive menu and command routing
+│   ├── db/
+│   │   └── manager.py       # SQLite catalog and cache management
+│   ├── processing/
+│   │   ├── cleaner.py       # Input normalization and catalog importing
+│   │   └── analytics.py     # DataFrame operations and report datasets
+│   ├── reporting/
+│   │   └── generator.py    # Excel, CSV, and JSON exports
 │   ├── config.py            # Environment/.env settings
-│   ├── database.py          # SQLite catalog and cache storage
-│   ├── data_processor.py    # DataFrame transformation helpers
-│   ├── library_client.py    # Sync and async Open Library HTTP clients
-│   ├── report_generator.py  # Excel, CSV, and JSON exports
-│   ├── text_utils.py        # Text normalization utilities
-│   └── exceptions.py        # Application-specific exceptions
+│   ├── exceptions.py        # Application-specific exceptions
+│   └── logger.py            # Console and rotating-file logging
+├── .env.example             # Configuration template
 ├── data/
-│   └── sample_catalog.csv
+│   ├── sample_catalog.csv
+│   └── outputs/             # Generated reports and rotating logs
 └── tests/
 ```
+
+Thin top-level modules such as `src/database.py` remain as import-compatibility
+wrappers; new code should import from the package paths shown above.

@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from data_processor import DataProcessor
 from exceptions import DataValidationError
+from processing.analytics import DataProcessor
 
 
 def test_handle_missing_values_with_drop_and_subset():

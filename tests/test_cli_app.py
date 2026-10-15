@@ -5,10 +5,11 @@ import httpx
 import pandas as pd
 import pytest
 
-from cli_app import CLIApp
-from database import DatabaseManager
+from api.sync_client import SyncLibraryClient
+from cli.menu import CLIApp
+from db.manager import DatabaseManager
 from exceptions import DataValidationError
-from library_client import SyncLibraryClient
+from processing.cleaner import CatalogCleaner
 
 
 class StubLibraryClient:
@@ -110,7 +111,10 @@ def test_subject_ingestion_compares_sync_async_and_caches_api_results(monkeypatc
             assert (subject, limit, offset) == ("fiction", 10, 0)
             return {"works": [work]}
 
-    monkeypatch.setattr("cli_app.AsyncLibraryClient", lambda **_kwargs: AsyncStub())
+    monkeypatch.setattr(
+        "api.catalog_service.AsyncLibraryClient",
+        lambda **_kwargs: AsyncStub(),
+    )
     database = DatabaseManager(":memory:")
     output = []
     app = make_app(
@@ -195,7 +199,7 @@ def test_json_row_generator_handles_rows_spanning_read_chunks(tmp_path):
         encoding="utf-8",
     )
 
-    rows = list(CLIApp._iter_catalog_records(source))
+    rows = list(CatalogCleaner._iter_records(source))
 
     assert len(rows) == 2
     assert len(rows[0]["title"]) == 70000
@@ -298,7 +302,7 @@ def test_quality_diagnostics_runs_test_suite_after_successful_checks(
         calls.append((command, kwargs))
         return subprocess.CompletedProcess(command, 0, "3 passed", "")
 
-    monkeypatch.setattr("cli_app.subprocess.run", fake_run)
+    monkeypatch.setattr("cli.menu.subprocess.run", fake_run)
 
     app.run_quality_diagnostics()
 

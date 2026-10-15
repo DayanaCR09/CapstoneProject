@@ -7,7 +7,7 @@ import pytest
 from openpyxl import load_workbook
 
 from exceptions import DataValidationError
-from report_generator import ReportGenerator
+from reporting.generator import ReportGenerator
 
 
 def test_exports_formatted_workbook_with_sheets_and_safe_cell_values(tmp_path):

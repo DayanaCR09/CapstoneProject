@@ -1,6 +1,6 @@
 import pytest
 
-from text_utils import extract_isbns, normalize_string
+from processing.cleaner import extract_isbns, normalize_string
 
 
 @pytest.mark.parametrize(
@@ -21,16 +21,17 @@ def test_extracts_valid_isbns(text, expected):
 
 
 def test_extract_isbns_ignores_invalid_or_embedded_values():
-    assert extract_isbns(
-        "Invalid checksum: 9780306406158; "
-        "embedded digits: 12345678901234; malformed: 978-ABC-40615-7"
-    ) == []
+    assert (
+        extract_isbns(
+            "Invalid checksum: 9780306406158; "
+            "embedded digits: 12345678901234; malformed: 978-ABC-40615-7"
+        )
+        == []
+    )
 
 
 def test_extract_isbns_deduplicates_normalized_values():
-    assert extract_isbns("978-0-306-40615-7 and 9780306406157") == [
-        "9780306406157"
-    ]
+    assert extract_isbns("978-0-306-40615-7 and 9780306406157") == ["9780306406157"]
 
 
 @pytest.mark.parametrize(

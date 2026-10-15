@@ -1,8 +1,9 @@
 import httpx
 import pytest
 
+from api.async_client import AsyncLibraryClient
+from api.sync_client import SyncLibraryClient
 from exceptions import APIError, ConfigurationError, DataValidationError
-from library_client import AsyncLibraryClient, SyncLibraryClient
 
 
 def test_sync_client_retries_server_error(monkeypatch):
@@ -16,7 +17,7 @@ def test_sync_client_retries_server_error(monkeypatch):
             return httpx.Response(503, request=request)
         return httpx.Response(200, json={"ok": True}, request=request)
 
-    monkeypatch.setattr("library_client.time.sleep", delays.append)
+    monkeypatch.setattr("api.sync_client.time.sleep", delays.append)
     with SyncLibraryClient(
         "https://library.example",
         transport=httpx.MockTransport(handler),
@@ -43,7 +44,7 @@ def test_sync_client_honors_retry_after(monkeypatch):
             )
         return httpx.Response(200, json=[], request=request)
 
-    monkeypatch.setattr("library_client.time.sleep", delays.append)
+    monkeypatch.setattr("api.sync_client.time.sleep", delays.append)
     with SyncLibraryClient(
         "https://library.example",
         max_retry_delay=0.1,
@@ -95,9 +96,7 @@ def test_sync_client_calls_open_library_endpoints():
         assert client.search("Pride & Prejudice", page=2) == {"ok": True}
         assert client.get_work("OL123W") == {"ok": True}
         assert client.get_author_works("OL456A") == {"ok": True}
-        assert client.get_subject("science fiction", limit=5, offset=10) == {
-            "ok": True
-        }
+        assert client.get_subject("science fiction", limit=5, offset=10) == {"ok": True}
 
     assert requests[0].url.path == "/search.json"
     assert dict(requests[0].url.params) == {
@@ -143,7 +142,7 @@ async def test_async_client_retries_server_error(monkeypatch):
     async def fake_sleep(delay):
         delays.append(delay)
 
-    monkeypatch.setattr("library_client.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("api.async_client.asyncio.sleep", fake_sleep)
     async with AsyncLibraryClient(
         "https://library.example",
         transport=httpx.MockTransport(handler),

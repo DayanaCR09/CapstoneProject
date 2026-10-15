@@ -16,3 +16,9 @@ wheels/
 
 # Logs
 *.log
+
+# Generated application data
+/data/library.db
+/data/library.db-*
+/data/outputs/*
+!/data/outputs/.gitkeep

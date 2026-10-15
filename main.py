@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from cli_app import CLIApp  # noqa: E402, I001
+from cli.menu import CLIApp  # noqa: E402, I001
 
 __all__ = ["CLIApp"]
 

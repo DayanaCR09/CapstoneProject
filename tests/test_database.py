@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from database import DatabaseManager
+from db.manager import DatabaseManager
 from exceptions import DataValidationError
 
 

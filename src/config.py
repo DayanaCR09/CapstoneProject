@@ -6,6 +6,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings loaded from environment variables and a .env file."""
 
+    database_path: str = "data/library.db"
+    output_directory: str = "data/outputs"
+    api_base_url: str = "https://openlibrary.org"
+    log_level: str = "INFO"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
