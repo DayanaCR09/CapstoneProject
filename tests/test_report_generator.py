@@ -1,5 +1,6 @@
 import csv
 import json
+from unittest.mock import call, patch
 
 import pandas as pd
 import pytest
@@ -92,6 +93,54 @@ def test_export_reports_writes_workbook_and_dataset_summaries(tmp_path):
         "By author_json",
     }
     assert all(path.exists() for path in outputs.values())
+
+
+def test_export_reports_delegates_to_export_apis_with_expected_paths(tmp_path):
+    datasets = {
+        "Cleaned works": pd.DataFrame({"title": ["Emma"]}),
+        "By author": pd.DataFrame({"author": ["Jane Austen"], "count": [1]}),
+    }
+    excel_path = tmp_path / "books.xlsx"
+    cleaned_csv = tmp_path / "books_Cleaned works.csv"
+    cleaned_json = tmp_path / "books_Cleaned works.json"
+    author_csv = tmp_path / "books_By author.csv"
+    author_json = tmp_path / "books_By author.json"
+
+    with (
+        patch.object(ReportGenerator, "export_excel", return_value=excel_path) as excel,
+        patch.object(
+            ReportGenerator,
+            "export_csv_summary",
+            side_effect=[cleaned_csv, author_csv],
+        ) as csv_export,
+        patch.object(
+            ReportGenerator,
+            "export_json",
+            side_effect=[cleaned_json, author_json],
+        ) as json_export,
+    ):
+        outputs = ReportGenerator.export_reports(
+            datasets,
+            tmp_path,
+            filename_prefix="books",
+        )
+
+    assert outputs == {
+        "excel": excel_path,
+        "Cleaned works_csv": cleaned_csv,
+        "Cleaned works_json": cleaned_json,
+        "By author_csv": author_csv,
+        "By author_json": author_json,
+    }
+    excel.assert_called_once_with(datasets, tmp_path / "books.xlsx")
+    assert csv_export.call_args_list == [
+        call(datasets["Cleaned works"], tmp_path / "books_Cleaned works.csv"),
+        call(datasets["By author"], tmp_path / "books_By author.csv"),
+    ]
+    assert json_export.call_args_list == [
+        call(datasets["Cleaned works"], tmp_path / "books_Cleaned works.json"),
+        call(datasets["By author"], tmp_path / "books_By author.json"),
+    ]
 
 
 @pytest.mark.parametrize(
