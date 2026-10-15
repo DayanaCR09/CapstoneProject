@@ -89,6 +89,38 @@ def test_add_works_batches_catalog_upserts_atomically():
         assert database.get_work("9780141439518") is None
 
 
+def test_add_works_persists_publication_year_and_language():
+    with DatabaseManager(":memory:") as database:
+        database.add_works(
+            [
+                {
+                    "title": "Emma",
+                    "author": "Jane Austen",
+                    "isbn": "9780141439587",
+                    "published_year": 1815,
+                    "language": "eng",
+                }
+            ]
+        )
+
+        assert database.list_works()[0]["published_year"] == 1815
+        assert database.list_works()[0]["language"] == "eng"
+        stats = database.get_statistics()
+        assert stats["storage_bytes"] > 0
+
+
+def test_database_tracks_cache_hits_and_misses():
+    with DatabaseManager(":memory:") as database:
+        assert database.get_cached_response("missing") is None
+        database.cache_response("books", {"title": "Emma"})
+        assert database.get_cached_response("books") == {"title": "Emma"}
+
+        stats = database.get_statistics()
+        assert stats["cache_hits"] == 1
+        assert stats["cache_misses"] == 1
+        assert stats["cache_hit_ratio"] == 0.5
+
+
 def test_add_works_rolls_back_when_an_upsert_fails(monkeypatch):
     with DatabaseManager(":memory:") as database:
         original_upsert_work = database.upsert_work

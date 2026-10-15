@@ -6,12 +6,17 @@ producing cleaned catalog files and analytical reports.
 
 ## Features
 
-- Fetch works by subject from Open Library and save usable records locally.
-- Search the local catalog and Open Library in one operation.
-- De-duplicate CSV, JSON, and Excel catalog files.
-- Export a formatted Excel workbook and per-dataset CSV and JSON reports.
-- Inspect SQLite database health and remove expired cache entries.
-- Run catalog quality checks and the project test suite from the CLI.
+- Fetch works for a subject synchronously and asynchronously, compare API
+  runtimes, cache responses in SQLite, and save usable records.
+- Search the local catalog by author, title, or checksum-validated ISBN; query
+  Open Library when no local match or cached response is available.
+- Stream and de-duplicate CSV and JSON catalogs (and accept XLSX files), then
+  upsert valid records into SQLite.
+- Export a dated Excel report, publication-year and language summaries, CSV
+  and JSON datasets, and a minified API-handoff JSON file.
+- Inspect SQLite integrity, storage, catalog/cache metrics, and `.env` state;
+  remove expired cache entries.
+- Run catalog quality checks, Ruff lint/format checks, and pytest from the CLI.
 - Retry transient API failures and respect rate-limit retry guidance.
 
 ## Requirements
@@ -44,18 +49,19 @@ Choose an option from the interactive menu:
 
 | Option | Action |
 | --- | --- |
-| `1` | Fetch works for a subject (up to 100) and save records with usable title, author, and ISBN data. |
-| `2` | Search local records and Open Library by title, author, or ISBN. |
-| `3` | Read and de-duplicate a local CSV, JSON, or XLSX catalog. |
-| `4` | Generate Excel, CSV, and JSON reports from the local catalog. |
-| `5` | Check SQLite integrity, display catalog/cache counts, and remove expired cache entries. |
-| `6` | Check catalog quality and database integrity; run pytest if those checks pass. |
+| `1` | Enter a subject, result limit, and offset; compare synchronous and asynchronous requests, cache responses, and ingest usable works. |
+| `2` | Select author, title, or ISBN search. ISBN-10/13 checksums are validated; local results are preferred, with cached/API lookup on a miss. |
+| `3` | Read, validate, normalize, de-duplicate, and import a CSV, JSON, or XLSX catalog; a cleaned copy is written beside the source. |
+| `4` | Create a timestamped workbook, publication-year/language summaries, per-dataset CSV/JSON files, and a minified API handoff file. |
+| `5` | Check SQLite integrity, storage size, cache hits/misses and hit ratio, display catalog counts and `.env` state, and remove expired entries. |
+| `6` | Check catalog quality and database integrity; if clean, run Ruff lint, formatting checks, and pytest. |
 | `0` | Exit. |
 
 ### Local catalog files
 
-Option `3` accepts `.csv`, `.json`, and `.xlsx` files. Each file must contain
-columns named exactly `title`, `author`, and `isbn` (lowercase). For example:
+Option `3` accepts `.csv`, `.json`, and `.xlsx` files. The file must contain
+columns named `title`, `author`, and `isbn` (case-insensitive; surrounding
+whitespace is ignored). For example:
 
 ```csv
 title,author,isbn
@@ -63,10 +69,11 @@ Pride and Prejudice,Jane Austen,9780192503350
 Emma,Jane Austen,9780141439587
 ```
 
-The importer keeps the first row for each normalized ISBN. If an ISBN is blank,
-it uses normalized title and author to identify duplicates. The cleaned file is
-written next to the source with `_deduplicated` inserted before the extension;
-the source file is left unchanged. For example,
+The importer streams CSV and JSON rows, normalizes Unicode text, validates ISBN
+checksums, keeps the first row for each ISBN, and upserts accepted rows into
+SQLite. Rows without a valid title, author, or ISBN are skipped and counted.
+The cleaned file is written next to the source with `_deduplicated` inserted
+before the extension; the source file is left unchanged. For example,
 `catalog.csv` produces `catalog_deduplicated.csv`.
 
 The repository includes [`data/sample_catalog.csv`](data/sample_catalog.csv) as
@@ -74,16 +81,18 @@ a sample input file.
 
 ### Reports
 
-Option `4` creates two datasets from the local catalog:
+Option `4` creates a timestamped report set from the local catalog:
 
 - `Catalog`: all catalog records.
 - `By author`: work counts grouped by author.
+- `By publication year` and `By language`: counts when metadata is available.
+- `Performance metrics`: catalog size and metadata coverage.
 
 Enter an output directory when prompted, or press Enter to use `reports/`.
-With the default directory, the application writes `library.xlsx`, plus CSV and
-JSON files for each dataset (for example, `library_Catalog.csv` and
-`library_By author.json`). The output directory is created if it does not exist.
-No report files are generated while the catalog is empty.
+For example, it writes `library_report_YYYYMMDD.xlsx`, CSV and JSON files for
+each dataset, and `library_report_YYYYMMDD_api_handoff.json`. The output
+directory is created if it does not exist. No reports are generated while the
+catalog is empty.
 
 ## Data and configuration
 
@@ -113,7 +122,7 @@ data processing, report generation, configuration, text utilities, exceptions,
 and synchronous/asynchronous API-client behavior. API tests use mocked HTTP
 transports rather than making live requests.
 
-GitHub Actions runs the Ruff check and pytest on pushes and pull requests. The
+GitHub Actions runs Ruff lint and pytest on pushes and pull requests. The
 workflow is defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Project layout

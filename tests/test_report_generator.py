@@ -73,6 +73,18 @@ def test_exports_json_records_and_nulls(tmp_path):
     ]
 
 
+def test_exports_minified_json_for_api_handoffs(tmp_path):
+    dataframe = pd.DataFrame({"title": ["Emma"], "count": [1]})
+
+    path = ReportGenerator.export_json(
+        dataframe,
+        tmp_path / "handoff.json",
+        minified=True,
+    )
+
+    assert path.read_text(encoding="utf-8") == '[{"title":"Emma","count":1}]\n'
+
+
 def test_export_reports_writes_workbook_and_dataset_summaries(tmp_path):
     datasets = {
         "Cleaned works": pd.DataFrame({"title": ["Emma"]}),

@@ -49,7 +49,9 @@ class DatabaseManager:
                 title TEXT NOT NULL CHECK (length(trim(title)) > 0),
                 author_id INTEGER NOT NULL
                     REFERENCES authors (id) ON DELETE RESTRICT,
-                isbn TEXT NOT NULL UNIQUE CHECK (length(trim(isbn)) > 0)
+                isbn TEXT NOT NULL UNIQUE CHECK (length(trim(isbn)) > 0),
+                published_year INTEGER,
+                language TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_works_author_id
@@ -61,8 +63,25 @@ class DatabaseManager:
                 cached_at REAL NOT NULL,
                 expires_at REAL
             );
+
+            CREATE TABLE IF NOT EXISTS api_cache_metrics (
+                metric TEXT PRIMARY KEY,
+                count INTEGER NOT NULL DEFAULT 0
+            );
+
+            INSERT OR IGNORE INTO api_cache_metrics (metric, count)
+            VALUES ('hits', 0), ('misses', 0);
             """
         )
+        work_columns = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(works)")
+        }
+        if "published_year" not in work_columns:
+            self._connection.execute(
+                "ALTER TABLE works ADD COLUMN published_year INTEGER"
+            )
+        if "language" not in work_columns:
+            self._connection.execute("ALTER TABLE works ADD COLUMN language TEXT")
 
     @contextmanager
     def transaction(self) -> Iterator["DatabaseManager"]:
@@ -115,23 +134,48 @@ class DatabaseManager:
                 raise sqlite3.IntegrityError("Failed to resolve inserted author")
             return int(row["id"])
 
-    def upsert_work(self, title: str, author: str, isbn: str) -> int:
+    def upsert_work(
+        self,
+        title: str,
+        author: str,
+        isbn: str,
+        *,
+        published_year: int | None = None,
+        language: str | None = None,
+    ) -> int:
         """Insert or update a work by ISBN and return its work ID."""
         title = self._required_text(title, "title")
         author = self._required_text(author, "author")
         isbn = self._required_text(isbn, "isbn")
+        if published_year is not None and (
+            isinstance(published_year, bool)
+            or not isinstance(published_year, int)
+            or not 1000 <= published_year <= 9999
+        ):
+            raise DataValidationError(
+                "published_year must be a four-digit year or None",
+                field="published_year",
+            )
+        if language is not None:
+            language = self._required_text(language, "language")
 
         with self.transaction():
             author_id = self.upsert_author(author)
             self._connection.execute(
                 """
-                INSERT INTO works (title, author_id, isbn)
-                VALUES (?, ?, ?)
+                INSERT INTO works (
+                    title, author_id, isbn, published_year, language
+                )
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (isbn) DO UPDATE SET
                     title = excluded.title,
-                    author_id = excluded.author_id
+                    author_id = excluded.author_id,
+                    published_year = COALESCE(
+                        excluded.published_year, works.published_year
+                    ),
+                    language = COALESCE(excluded.language, works.language)
                 """,
-                (title, author_id, isbn),
+                (title, author_id, isbn, published_year, language),
             )
             row = self._connection.execute(
                 "SELECT id FROM works WHERE isbn = ?", (isbn,)
@@ -144,7 +188,7 @@ class DatabaseManager:
         """Insert or update a work and its author; return the work ID."""
         return self.upsert_work(title, author, isbn)
 
-    def add_works(self, works: Iterable[Mapping[str, str]]) -> list[int]:
+    def add_works(self, works: Iterable[Mapping[str, Any]]) -> list[int]:
         """Upsert works atomically; roll back the whole batch if an operation fails."""
         validated_works = []
         for index, work in enumerate(works):
@@ -162,13 +206,32 @@ class DatabaseManager:
                     f"work at index {index} is missing {exc.args[0]}",
                     field=f"works[{index}].{exc.args[0]}",
                 ) from exc
-            validated_works.append((title, author, isbn))
+            validated_works.append(
+                (
+                    title,
+                    author,
+                    isbn,
+                    work.get("published_year"),
+                    work.get("language"),
+                )
+            )
 
         with self.transaction():
-            return [
-                self.upsert_work(title, author, isbn)
-                for title, author, isbn in validated_works
-            ]
+            work_ids = []
+            for title, author, isbn, published_year, language in validated_works:
+                if published_year is None and language is None:
+                    work_ids.append(self.upsert_work(title, author, isbn))
+                else:
+                    work_ids.append(
+                        self.upsert_work(
+                            title,
+                            author,
+                            isbn,
+                            published_year=published_year,
+                            language=language,
+                        )
+                    )
+            return work_ids
 
     def get_work(self, isbn: str) -> dict[str, Any] | None:
         """Return a work with its author name, or None if the ISBN is unknown."""
@@ -185,10 +248,12 @@ class DatabaseManager:
         return dict(row) if row is not None else None
 
     def list_works(self) -> list[dict[str, Any]]:
-        """Return all works with their author names, ordered by title and ISBN."""
+        """Return catalog works and available report metadata, ordered by title."""
         rows = self._connection.execute(
             """
-            SELECT works.id, works.title, works.isbn, authors.name AS author
+            SELECT
+                works.id, works.title, works.isbn, authors.name AS author,
+                works.published_year, works.language
             FROM works
             JOIN authors ON authors.id = works.author_id
             ORDER BY works.title, works.isbn
@@ -279,16 +344,26 @@ class DatabaseManager:
             (cache_key,),
         ).fetchone()
         if row is None:
+            self._record_cache_result("misses")
             return None
         if row["expires_at"] is not None and row["expires_at"] <= time.time():
             with self.transaction():
                 self._connection.execute(
                     "DELETE FROM api_cache WHERE cache_key = ?", (cache_key,)
                 )
+                self._record_cache_result("misses")
             return None
+        self._record_cache_result("hits")
         return json.loads(row["value_json"])
 
-    def get_statistics(self) -> dict[str, int]:
+    def _record_cache_result(self, metric: str) -> None:
+        with self.transaction():
+            self._connection.execute(
+                "UPDATE api_cache_metrics SET count = count + 1 WHERE metric = ?",
+                (metric,),
+            )
+
+    def get_statistics(self) -> dict[str, int | float]:
         """Return catalog and cache counts, including cache entries past expiry."""
         works = self._connection.execute("SELECT COUNT(*) FROM works").fetchone()[0]
         authors = self._connection.execute("SELECT COUNT(*) FROM authors").fetchone()[0]
@@ -298,11 +373,26 @@ class DatabaseManager:
         expired_cache_entries = self._connection.execute(
             "SELECT COUNT(*) FROM api_cache WHERE expires_at <= ?", (time.time(),)
         ).fetchone()[0]
+        cache_metrics = {
+            row["metric"]: int(row["count"])
+            for row in self._connection.execute(
+                "SELECT metric, count FROM api_cache_metrics"
+            )
+        }
+        cache_requests = cache_metrics.get("hits", 0) + cache_metrics.get("misses", 0)
+        page_count = self._connection.execute("PRAGMA page_count").fetchone()[0]
+        page_size = self._connection.execute("PRAGMA page_size").fetchone()[0]
         return {
             "works": int(works),
             "authors": int(authors),
             "cache_entries": int(cache_entries),
             "expired_cache_entries": int(expired_cache_entries),
+            "cache_hits": cache_metrics.get("hits", 0),
+            "cache_misses": cache_metrics.get("misses", 0),
+            "cache_hit_ratio": (
+                cache_metrics.get("hits", 0) / cache_requests if cache_requests else 0.0
+            ),
+            "storage_bytes": int(page_count * page_size),
         }
 
     def clear_expired_cache(self) -> int:

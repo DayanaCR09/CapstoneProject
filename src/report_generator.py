@@ -85,7 +85,7 @@ class ReportGenerator:
         try:
             if bool(pd.isna(value)):
                 return None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
 
         if isinstance(value, pd.Timestamp):
@@ -175,6 +175,8 @@ class ReportGenerator:
         cls,
         dataframe: pd.DataFrame,
         output_path: str | Path,
+        *,
+        minified: bool = False,
     ) -> Path:
         """Write a dataset as a UTF-8 JSON array of records."""
         cls._validate_dataframe(dataframe)
@@ -187,7 +189,14 @@ class ReportGenerator:
             )
         )
         path.write_text(
-            json.dumps(records, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+            json.dumps(
+                records,
+                ensure_ascii=False,
+                indent=None if minified else 2,
+                separators=(",", ":") if minified else None,
+                allow_nan=False,
+            )
+            + "\n",
             encoding="utf-8",
         )
         return path
